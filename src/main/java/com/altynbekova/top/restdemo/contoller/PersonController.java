@@ -4,6 +4,7 @@ import com.altynbekova.top.restdemo.dao.PersonRepository;
 import com.altynbekova.top.restdemo.entity.Person;
 import com.altynbekova.top.restdemo.exception.PersonNotFoundException;
 import com.altynbekova.top.restdemo.mapping.PersonModelAssembler;
+import com.altynbekova.top.restdemo.service.PersonService;
 import org.springframework.hateoas.CollectionModel;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.IanaLinkRelations;
@@ -19,18 +20,22 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 @RestController
 public class PersonController {
     private PersonRepository repository;
+    private PersonService personService;
     private PersonModelAssembler personModelAssembler;
 
-    public PersonController(PersonRepository repository, PersonModelAssembler personModelAssembler) {
+    public PersonController(PersonRepository repository,
+                            PersonService service,
+                            PersonModelAssembler personModelAssembler) {
         this.repository = repository;
-        this.personModelAssembler=personModelAssembler;
+        this.personService = service;
+        this.personModelAssembler = personModelAssembler;
     }
 
     @GetMapping("/users")
     public CollectionModel<EntityModel<Person>> all() {
-        List<EntityModel<Person>> people = repository.findAll().stream()
+        List<EntityModel<Person>> people = personService.findAll().stream()
                 .map(person ->
-                    personModelAssembler.toModel(person)
+                        personModelAssembler.toModel(person)
                 ).collect(Collectors.toList());
 
         return CollectionModel.of(people,
@@ -39,7 +44,7 @@ public class PersonController {
 
     @PostMapping(value = "/users")
     public ResponseEntity<?> create(@RequestBody Person person) {
-        EntityModel<Person> entityModel = personModelAssembler.toModel(repository.save(person));
+        EntityModel<Person> entityModel = personModelAssembler.toModel(personService.save(person));
 
         return ResponseEntity.created(entityModel.getRequiredLink(IanaLinkRelations.SELF).toUri())
                 .body(entityModel);
@@ -47,28 +52,40 @@ public class PersonController {
 
     @GetMapping("/users/{id}")
     public EntityModel<Person> find(@PathVariable long id) {
-        Person person = repository.findById(id).
-                orElseThrow(() -> new PersonNotFoundException(id));
+        Person person = personService.findById(id);
 
         return personModelAssembler.toModel(person);
     }
 
+    @GetMapping("/users/{min}/{max}")
+    public CollectionModel<EntityModel<Person>> findByAgeRange(@PathVariable int min,
+                                                               @PathVariable int max) {
+        List<EntityModel<Person>> people = personService.findByAgeBetween(min, max).stream()
+                .map(person ->
+                        personModelAssembler.toModel(person)
+                ).collect(Collectors.toList());
+
+        return CollectionModel.of(people,
+                linkTo(methodOn(PersonController.class).all()).withRel("users"));
+
+    }
+
     @DeleteMapping("/users/{id}")
     public ResponseEntity<?> delete(@PathVariable long id) {
-        repository.deleteById(id);
+        personService.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/users/address/{pattern}")
+    public ResponseEntity<?> deleteByAddress(@PathVariable String pattern){
+        personService.deleteByAddress(pattern);
+
         return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/users/{id}")
     public ResponseEntity<?> update(@RequestBody Person person, @PathVariable long id) {
-        Person personToUpdate = repository.findById(id).map(p -> {
-            p.setName(person.getName());
-            return repository.save(p);
-        }).orElseGet(() -> {
-            person.setId(id);
-            return repository.save(person);
-        });
-        EntityModel<Person> entityModel = personModelAssembler.toModel(personToUpdate);
+        EntityModel<Person> entityModel = personModelAssembler.toModel(personService.update(person, id));
 
         return ResponseEntity.created(entityModel.getRequiredLink(IanaLinkRelations.SELF).toUri())
                 .body(entityModel);
